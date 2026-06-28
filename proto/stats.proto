@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package stats;
+
+option go_package = "system_stats_deamon/api/stats";
+
+service StatsService {
+  rpc GetStats(StatsRequest) returns (stream Snapshot);
+}
+
+message StatsRequest {
+  uint32 n = 1;
+  uint32 m = 2;
+}
+
+message Snapshot {
+  LoadAverage load_average = 1;
+  CPU cpu = 2;
+  repeated DiskIO disk_io = 3;
+  repeated Filesystem filesystems = 4;
+  NetworkStats network = 5;
+}
+
+message LoadAverage {
+  float one = 1;
+  float five = 2;
+  float fifteen = 3;
+}
+
+message CPU {
+  float user_mode = 1;
+  float system_mode = 2;
+  float idle = 3;
+}
+
+message DiskIO {
+  string device = 1;
+  float tps = 2;
+  float kbps = 3;
+}
+
+message Filesystem {
+  string filesystem = 1;
+  string mount_point = 2;
+  uint64 used_mb = 3;
+  float used_percent = 4;
+  uint64 used_inodes = 5;
+  float used_inodes_percent = 6;
+}
+
+message NetworkStats {
+  repeated ProtocolTalker protocol_talkers = 1;
+  repeated TrafficTalker traffic_talkers = 2;
+  repeated ListeningSocket listening_sockets = 3;
+  repeated TCPState tcp_states = 4;
+}
+
+message ProtocolTalker {
+  string protocol = 1;
+  uint64 bytes = 2;
+  float percent = 3;
+}
+
+message TrafficTalker {
+  string src_addr = 1;
+  string dst_addr = 2;
+  string protocol = 3;
+  float bps = 4;
+}
+
+message ListeningSocket {
+  string command = 1;
+  uint32 pid = 2;
+  string user = 3;
+  string protocol = 4;
+  uint32 port = 5;
+}
+
+message TCPState {
+  string state = 1;
+  uint32 count = 2;
+}
