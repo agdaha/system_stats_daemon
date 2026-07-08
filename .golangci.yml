@@ -5,6 +5,15 @@ linters-settings:
   funlen:
     lines: 150
     statements: 80
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(system_stats_deamon)
+  tagliatelle:
+    case:
+      rules:
+        json: snake
   depguard:
     rules:
       main:
@@ -13,6 +22,7 @@ linters-settings:
           - google.golang.org/grpc
           - google.golang.org/protobuf
           - golang.org/x
+          - system_stats_deamon
 
 linters:
   disable-all: true
@@ -33,7 +43,6 @@ linters:
     - gocyclo
     - godot
     - gofmt
-    - gofumpt
     - goheader
     - gomoddirectives
     - gomodguard
@@ -66,3 +75,4 @@ linters:
     - unused
     - wastedassign
     - whitespace
+
