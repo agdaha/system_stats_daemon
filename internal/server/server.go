@@ -9,17 +9,46 @@ import (
 
 	statspb "system_stats_deamon/api/stats"
 	"system_stats_deamon/internal/collector/cpu"
+	"system_stats_deamon/internal/collector/diskio"
+	"system_stats_deamon/internal/collector/filesystem"
 	"system_stats_deamon/internal/collector/loadavg"
+	"system_stats_deamon/internal/collector/netsockets"
+	"system_stats_deamon/internal/collector/nettraffic"
 )
 
+type (
+	loadAvgProvider interface {
+		Average(time.Duration) (loadavg.Sample, bool)
+	}
+	cpuProvider interface {
+		Average(time.Duration) (cpu.Sample, bool)
+	}
+	diskIOProvider interface {
+		Average(time.Duration) []diskio.Sample
+	}
+	filesystemProvider interface {
+		Average(time.Duration) []filesystem.Sample
+	}
+	netTrafficProvider interface {
+		Snapshot(time.Duration) ([]nettraffic.ProtocolSample, []nettraffic.FlowSample)
+	}
+	netSocketsProvider interface {
+		Snapshot(time.Duration) ([]netsockets.ListenSample, []netsockets.StateSample)
+	}
+)
 type Deps struct {
-	LoadAvg *loadavg.Collector
-	CPU     *cpu.Collector
+	LoadAvg    loadAvgProvider
+	CPU        cpuProvider
+	DiskIO     diskIOProvider
+	Filesystem filesystemProvider
+	NetTraffic netTrafficProvider
+	NetSockets netSocketsProvider
 }
-
 type Server struct {
 	statspb.UnimplementedStatsServiceServer
-	deps Deps
+	deps      Deps
+	tickerDur time.Duration
+	windowDur time.Duration
 }
 
 func New(deps Deps) *Server {
@@ -33,8 +62,14 @@ func (s *Server) GetStats(req *statspb.StatsRequest, stream grpc.ServerStreaming
 		return status.Error(codes.InvalidArgument, "N and M must be greater than 0")
 	}
 
-	interval := time.Duration(n) * time.Second
-	window := time.Duration(m) * time.Second
+	interval := s.tickerDur
+	if interval == 0 {
+		interval = time.Duration(n) * time.Second
+	}
+	window := s.windowDur
+	if window == 0 {
+		window = time.Duration(m) * time.Second
+	}
 
 	select {
 	case <-time.After(window):
@@ -80,5 +115,75 @@ func (s *Server) buildSnapshot(window time.Duration) *statspb.Snapshot {
 		}
 	}
 
+	if s.deps.DiskIO != nil {
+		for _, sample := range s.deps.DiskIO.Average(window) {
+			snap.DiskIo = append(snap.DiskIo, &statspb.DiskIO{
+				Device: sample.Device,
+				Tps:    sample.TPS,
+				Kbps:   sample.KBps,
+			})
+		}
+	}
+
+	if s.deps.Filesystem != nil {
+		for _, sample := range s.deps.Filesystem.Average(window) {
+			snap.Filesystems = append(snap.Filesystems, &statspb.Filesystem{
+				Filesystem:        sample.Filesystem,
+				MountPoint:        sample.MountPoint,
+				UsedMb:            sample.UsedMB,
+				UsedPercent:       sample.UsedPercent,
+				UsedInodes:        sample.UsedInodes,
+				UsedInodesPercent: sample.UsedInodesPercent,
+			})
+		}
+	}
+
+	if s.deps.NetTraffic != nil || s.deps.NetSockets != nil {
+		snap.Network = s.buildNetwork(window)
+	}
+
 	return snap
+}
+
+func (s *Server) buildNetwork(window time.Duration) *statspb.NetworkStats {
+	net := &statspb.NetworkStats{}
+
+	if s.deps.NetTraffic != nil {
+		protocols, flows := s.deps.NetTraffic.Snapshot(window)
+		for _, p := range protocols {
+			net.ProtocolTalkers = append(net.ProtocolTalkers, &statspb.ProtocolTalker{
+				Protocol: p.Interface,
+				Bytes:    p.BytesPerSec,
+				Percent:  p.Percent,
+			})
+		}
+		for _, f := range flows {
+			net.TrafficTalkers = append(net.TrafficTalkers, &statspb.TrafficTalker{
+				SrcAddr:  f.SrcAddr,
+				DstAddr:  f.DstAddr,
+				Protocol: f.Protocol,
+				Bps:      f.Bps,
+			})
+		}
+	}
+
+	if s.deps.NetSockets != nil {
+		sockets, states := s.deps.NetSockets.Snapshot(window)
+		for _, sock := range sockets {
+			net.ListeningSockets = append(net.ListeningSockets, &statspb.ListeningSocket{
+				Command:  sock.Command,
+				Pid:      sock.PID,
+				Protocol: sock.Protocol,
+				Port:     sock.Port,
+			})
+		}
+		for _, st := range states {
+			net.TcpStates = append(net.TcpStates, &statspb.TCPState{
+				State: st.State,
+				Count: st.Count,
+			})
+		}
+	}
+
+	return net
 }
