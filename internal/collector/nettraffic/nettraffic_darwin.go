@@ -1,11 +1,11 @@
-//go:build linux
+//go:build darwin
 
 package nettraffic
 
 import (
 	"context"
 	"fmt"
-	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +21,7 @@ func (c *Collector) runProto(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
-	prev, err := readNetDev()
+	prev, err := readNetStats()
 	if err != nil {
 		return
 	}
@@ -29,11 +29,11 @@ func (c *Collector) runProto(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			curr, err := readNetDev()
+			curr, err := readNetStats()
 			if err != nil {
 				continue
 			}
-			if samples := diffNetDev(prev, curr); len(samples) > 0 {
+			if samples := diffNetStats(prev, curr); len(samples) > 0 {
 				c.protoBuf.Push(samples)
 			}
 			prev = curr
@@ -43,38 +43,42 @@ func (c *Collector) runProto(ctx context.Context) {
 	}
 }
 
-func readNetDev() ([]netStat, error) {
-	data, err := os.ReadFile("/proc/net/dev")
+func readNetStats() ([]netStat, error) {
+	out, err := exec.Command("netstat", "-ib").Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("netstat -ib: %w", err)
 	}
-	return parseNetDev(string(data))
+	return parseNetstatIB(string(out))
 }
 
-func parseNetDev(content string) ([]netStat, error) {
-	lines := strings.Split(content, "\n")
-	stats := make([]netStat, 0, len(lines))
-	for _, line := range lines {
+// parseNetstatIB parses "netstat -ib" output on macOS.
+// Only <Link#N> rows carry cumulative byte counters.
+// Columns: Name Mtu Network Address Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll.
+func parseNetstatIB(content string) ([]netStat, error) {
+	var stats []netStat
+	for _, line := range strings.Split(content, "\n") {
 		fields := strings.Fields(line)
-		// Data lines: iface: rxbytes ... (9 more) txbytes ...
-		if len(fields) < 10 || !strings.HasSuffix(fields[0], ":") {
+		if len(fields) < 10 {
 			continue
 		}
-		iface := strings.TrimSuffix(fields[0], ":")
-		rxBytes, err := strconv.ParseUint(fields[1], 10, 64)
+		if !strings.HasPrefix(fields[2], "<Link") {
+			continue
+		}
+		iface := fields[0]
+		rxBytes, err := strconv.ParseUint(fields[6], 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("net/dev: rx bytes for %s: %w", iface, err)
+			return nil, fmt.Errorf("netstat -ib: rx bytes for %s: %w", iface, err)
 		}
 		txBytes, err := strconv.ParseUint(fields[9], 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("net/dev: tx bytes for %s: %w", iface, err)
+			return nil, fmt.Errorf("netstat -ib: tx bytes for %s: %w", iface, err)
 		}
 		stats = append(stats, netStat{iface: iface, rxBytes: rxBytes, txBytes: txBytes})
 	}
 	return stats, nil
 }
 
-func diffNetDev(prev, curr []netStat) []ProtocolSample {
+func diffNetStats(prev, curr []netStat) []ProtocolSample {
 	prevMap := make(map[string]netStat, len(prev))
 	for _, s := range prev {
 		prevMap[s.iface] = s
@@ -92,10 +96,7 @@ func diffNetDev(prev, curr []netStat) []ProtocolSample {
 		if total < 0 {
 			total = 0
 		}
-		samples = append(samples, ProtocolSample{
-			Interface:   c.iface,
-			BytesPerSec: uint64(total),
-		})
+		samples = append(samples, ProtocolSample{Interface: c.iface, BytesPerSec: uint64(total)})
 	}
 	return samples
 }
