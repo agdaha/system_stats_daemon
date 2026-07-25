@@ -12,7 +12,11 @@ import (
 
 	statspb "system_stats_deamon/api/stats"
 	"system_stats_deamon/internal/collector/cpu"
+	"system_stats_deamon/internal/collector/diskio"
+	"system_stats_deamon/internal/collector/filesystem"
 	"system_stats_deamon/internal/collector/loadavg"
+	"system_stats_deamon/internal/collector/netsockets"
+	"system_stats_deamon/internal/collector/nettraffic"
 	"system_stats_deamon/internal/config"
 	"system_stats_deamon/internal/server"
 )
@@ -64,6 +68,30 @@ func buildDeps(ctx context.Context, cfg *config.Config) server.Deps {
 		cp := cpu.New()
 		cp.Start(ctx)
 		deps.CPU = cp
+	}
+
+	if cfg.Subsystems.DiskIO {
+		d := diskio.New()
+		d.Start(ctx)
+		deps.DiskIO = d
+	}
+
+	if cfg.Subsystems.Filesystem {
+		fs := filesystem.New()
+		fs.Start(ctx)
+		deps.Filesystem = fs
+	}
+
+	if cfg.Subsystems.NetTraffic {
+		nt := nettraffic.New()
+		nt.Start(ctx)
+		deps.NetTraffic = nt
+	}
+
+	if cfg.Subsystems.NetSockets {
+		ns := netsockets.New()
+		ns.Start(ctx)
+		deps.NetSockets = ns
 	}
 
 	return deps

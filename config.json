@@ -1,0 +1,10 @@
+{
+  "subsystems": {
+    "load_average": true,
+    "cpu": true,
+    "disk_io": true,
+    "filesystem": true,
+    "net_traffic": false,
+    "net_sockets": false
+  }
+}
