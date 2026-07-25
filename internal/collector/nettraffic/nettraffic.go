@@ -1,3 +1,4 @@
+// Package nettraffic collects network traffic statistics.
 package nettraffic
 
 import (
@@ -8,12 +9,14 @@ import (
 	"system_stats_deamon/internal/ringbuffer"
 )
 
+// ProtocolSample holds per-interface traffic rate.
 type ProtocolSample struct {
 	Interface   string
 	BytesPerSec uint64
 	Percent     float32
 }
 
+// FlowSample holds per-flow traffic rate captured from tcpdump.
 type FlowSample struct {
 	SrcAddr  string
 	DstAddr  string
@@ -21,11 +24,13 @@ type FlowSample struct {
 	Bps      float32
 }
 
+// Collector collects network traffic statistics into in-memory ring buffers.
 type Collector struct {
 	protoBuf *ringbuffer.RingBuffer[[]ProtocolSample]
 	flowBuf  *ringbuffer.RingBuffer[[]FlowSample]
 }
 
+// New creates a Collector.
 func New() *Collector {
 	return &Collector{
 		protoBuf: ringbuffer.New[[]ProtocolSample](300),
@@ -33,11 +38,14 @@ func New() *Collector {
 	}
 }
 
+// Start begins background collection until ctx is done.
 func (c *Collector) Start(ctx context.Context) {
 	go c.runProto(ctx)
 	go c.runFlows(ctx)
 }
 
+// Snapshot returns averaged per-interface bytes/s and latest flow data over the window.
+// Returns nil slices if no data is available.
 func (c *Collector) Snapshot(window time.Duration) (protocols []ProtocolSample, flows []FlowSample) {
 	since := time.Now().Add(-window)
 
